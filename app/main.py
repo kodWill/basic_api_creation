@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 from database import SessionLocal, engine, Base
+from pydantic import BaseModel
 
 import models
 import os
@@ -15,6 +16,28 @@ def get_db():
     try: 
         yield db
     finally: db.close()
+
+class QueryRequest(BaseModel):
+    filename: str
+    params: dict = {}
+
+@app.post("/queries/from-file")
+def run_query(req: QueryRequest):
+    try:
+        filepath = os.path.join("sql", req.filename)
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="SQL file not found")
+
+        with open(filepath, "r") as f:
+            sql = text(f.read())
+
+        with engine.connect() as conn:
+            result = conn.execute(sql, req.params).mappings()
+            return [dict(row) for row in result]
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to run SQL file: {str(e)}")
 
 @app.post("/upload/csv")
 def upload_csv_to_db(postgre_db: Session = Depends(get_db)):
