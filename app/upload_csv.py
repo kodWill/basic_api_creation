@@ -3,6 +3,9 @@ import models
 import logging
 import os
 
+from typing import Optional
+from sqlalchemy.orm import DeclarativeMeta
+from sqlalchemy import Integer, Float, String, DateTime
 from sqlalchemy.orm import Session
 
 # Ensure the logs directory exists
@@ -22,6 +25,40 @@ def get_sqlalchemy_column_names(db_table):
     """Return list of column names from a SQLAlchemy model (excluding relationships)."""
     return [col.name for col in db_table.__table__.columns]
 
+def coerce_value(value, col_type):
+    if pd.isna(value) or str(value).strip() == "":
+        return None
+
+    try:
+        if isinstance(col_type, Integer):
+            return int(float(value))  # safely handle "34.0"
+        elif isinstance(col_type, Float):
+            return float(value)
+        elif isinstance(col_type, DateTime):
+            parsed = pd.to_datetime(value, errors="coerce")
+            return parsed.to_pydatetime() if not pd.isna(parsed) else None
+        elif isinstance(col_type, String):
+            return str(value).strip()
+    except Exception:
+        return None
+
+    return value  # fallback (untyped)
+
+def safe_row(row: pd.Series, model: DeclarativeMeta) -> Optional[dict]:
+    result = {}
+    for col in model.__table__.columns:
+        col_name = col.name
+        raw_value = row.get(col_name)
+
+        value = coerce_value(raw_value, col.type)
+
+        if value is None and not col.nullable and not col.primary_key:
+            # Required but missing or malformed
+            return None
+
+        result[col_name] = value
+    return result
+
 def load_csv_to_db(file_path: str, db_table, db: Session):
    
     try:
@@ -33,8 +70,11 @@ def load_csv_to_db(file_path: str, db_table, db: Session):
         records = []
         for _, row in df.iterrows():
             try:
-                db_obj = db_table(**row.to_dict())  # Directly create ORM object
-                records.append(db_obj)
+                record = safe_row(row, db_table)  # could be Job, Department, etc.
+                if record:
+                    logging.info(f"Inserting: {record}")
+                    db_obj = db_table(**row.to_dict())  # Directly create ORM object
+                    records.append(db_obj)
             except Exception as e:
                 logging.error(f"Error creating DB object from row {row.to_dict()}: {e}")
 

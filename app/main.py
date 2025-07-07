@@ -20,8 +20,10 @@ def get_db():
 def upload_csv_to_db(postgre_db: Session = Depends(get_db)):
     try:
         BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # points to project root
-        csv_path = os.path.join(BASE_DIR, "data_folder", "departments.csv")
-        upload_csv.load_csv_to_db(csv_path, db_table=models.Department, db=postgre_db)
+        upload_csv.load_csv_to_db(os.path.join(BASE_DIR, "data_folder", "departments.csv"), db_table=models.Department, db=postgre_db)
+        upload_csv.load_csv_to_db(os.path.join(BASE_DIR, "data_folder", "jobs.csv"), db_table=models.Job, db=postgre_db)
+        upload_csv.load_csv_to_db(os.path.join(BASE_DIR, "data_folder", "hired_employees.csv"), db_table=models.Employee, db=postgre_db)
+        
         return {"message": "Files Uploaded"}
     
     except FileNotFoundError as fnf:
