@@ -1,15 +1,28 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Path, Body
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 from database import SessionLocal, engine, Base
 from pydantic import BaseModel
+from models import Employee, Job, Department
+from schemas import EmployeeCreate, JobCreate, DepartmentCreate  # Pydantic models
+from typing import List
 
 import models
 import os
-import schemas, upload_csv
+import upload_csv
+
+
+
+RESOURCE_MODELS = {
+    "employees": (Employee, EmployeeCreate),
+    "jobs": (Job, JobCreate),
+    "departments": (Department, DepartmentCreate)
+}
 
 app = FastAPI()
+
+
 
 def get_db():
     db = SessionLocal()
@@ -58,6 +71,36 @@ def upload_csv_to_db(postgre_db: Session = Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+    
+
+@app.post("/{resource}/batch")
+def batch_insert(
+    resource: str = Path(..., description="Resource to insert into"),
+    data: List[dict] = Body(...)
+):
+    if resource not in RESOURCE_MODELS:
+        raise HTTPException(status_code=404, detail=f"Resource '{resource}' not supported.")
+
+    model_cls, schema_cls = RESOURCE_MODELS[resource]
+
+    if not (1 <= len(data) <= 1000):
+        raise HTTPException(status_code=400, detail="Batch size must be between 1 and 1000.")
+
+    # Validate each record against the corresponding Pydantic model
+    try:
+        validated = [schema_cls(**row).dict() for row in data]
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Validation error: {e}")
+
+    # Insert into the database
+    session = next(get_db())
+    try:
+        session.bulk_insert_mappings(model_cls, validated)
+        session.commit()
+        return {"message": f"Inserted {len(validated)} rows into '{resource}'"}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Insert failed: {e}")
     
 @app.get("/health/db")
 def db_health_check(db: Session = Depends(get_db)):

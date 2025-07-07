@@ -11,5 +11,6 @@ class JobCreate(BaseModel):
 class EmployeeCreate(BaseModel):
     id: int
     name: str
+    datetime: str
     department_id: int
     job_id: int
